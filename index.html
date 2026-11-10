@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Golden Hour</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- In-game HUD -->
+  <div id="hud" class="hidden">
+    <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+    <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+    <div id="dmg-dirs"></div>
+
+    <div id="wave-box">
+      <div id="wave-label">Wave 1</div>
+      <div id="wave-sub">Get ready</div>
+    </div>
+
+    <div id="banner">
+      <div id="banner-title"></div>
+      <div id="banner-sub"></div>
+    </div>
+
+    <div id="toasts"></div>
+
+    <div id="health-box">
+      <div class="caption">Vitality</div>
+      <div class="row">
+        <div id="health-num">100</div>
+        <div class="bar"><div id="health-fill"></div></div>
+      </div>
+    </div>
+
+    <div id="ammo-box">
+      <div id="weapon-name">Pistol</div>
+      <div class="ammo"><span id="ammo-mag">12</span><span id="ammo-res">/ ∞</span></div>
+      <div id="weapon-slots">
+        <span data-slot="0">1</span><span data-slot="1">2</span><span data-slot="2">3</span>
+      </div>
+      <div id="reload-hint">Reloading</div>
+    </div>
+
+    <div id="kills-box"><span id="kills-num">0</span> faded</div>
+  </div>
+
+  <!-- Main menu -->
+  <div id="menu" class="screen">
+    <div class="panel">
+      <div class="eyebrow">a peaceful backrooms survival</div>
+      <h1>Golden Hour</h1>
+      <p class="lede">The sun never quite sets in these rooms. Something soft and bright keeps drifting in. Hold your ground, one wave at a time.</p>
+      <div class="field-label">Difficulty</div>
+      <div class="diff" id="diff-buttons">
+        <button data-diff="easy"><b>Easy</b><small>Slow to aim, slow to notice, fragile</small></button>
+        <button data-diff="normal"><b>Normal</b><small>A fair, steady fight</small></button>
+        <button data-diff="hard"><b>Hard</b><small>Sharp aim, quick reflexes, tough</small></button>
+      </div>
+      <div class="actions">
+        <button id="btn-play" class="primary">Enter the rooms</button>
+        <button id="btn-settings" class="ghost">Settings</button>
+      </div>
+      <div class="controls">
+        <span><kbd>WASD</kbd> move</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> jump</span>
+        <span><kbd>Mouse</kbd> aim &amp; fire</span><span><kbd>R</kbd> reload</span>
+        <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> / wheel switch</span><span><kbd>Esc</kbd> pause</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="pause" class="screen hidden">
+    <div class="panel small">
+      <h2>Paused</h2>
+      <p class="lede">The dust hangs still in the light.</p>
+      <div class="actions column">
+        <button id="btn-resume" class="primary">Resume</button>
+        <button id="btn-pause-settings" class="ghost">Settings</button>
+        <button id="btn-quit" class="ghost">Leave to menu</button>
+      </div>
+      <p id="resume-note" class="note hidden">Click Resume to recapture the mouse.</p>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="settings" class="screen hidden">
+    <div class="panel small">
+      <h2>Settings</h2>
+      <label class="slider">
+        <span>Mouse sensitivity <em id="sens-val"></em></span>
+        <input id="set-sens" type="range" min="0.2" max="3" step="0.05" />
+      </label>
+      <label class="slider">
+        <span>Field of view <em id="fov-val"></em></span>
+        <input id="set-fov" type="range" min="60" max="105" step="1" />
+      </label>
+      <label class="slider">
+        <span>Master volume <em id="vol-val"></em></span>
+        <input id="set-vol" type="range" min="0" max="1" step="0.01" />
+      </label>
+      <label class="slider">
+        <span>Music <em id="music-val"></em></span>
+        <input id="set-music" type="range" min="0" max="1" step="0.01" />
+      </label>
+      <div class="field-label">Graphics</div>
+      <div class="diff two" id="quality-buttons">
+        <button data-quality="high"><b>High</b><small>Bloom, full resolution</small></button>
+        <button data-quality="low"><b>Low</b><small>For older machines</small></button>
+      </div>
+      <div class="actions">
+        <button id="btn-settings-back" class="primary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game over -->
+  <div id="gameover" class="screen hidden">
+    <div class="panel small">
+      <div class="eyebrow">the light fades</div>
+      <h2>You rest now</h2>
+      <div class="stats">
+        <div><b id="go-wave">0</b><span>waves cleared</span></div>
+        <div><b id="go-kills">0</b><span>entities faded</span></div>
+        <div><b id="go-acc">0%</b><span>accuracy</span></div>
+        <div><b id="go-time">0:00</b><span>time survived</span></div>
+      </div>
+      <p class="note" id="go-diff"></p>
+      <div class="actions">
+        <button id="btn-retry" class="primary">Try again</button>
+        <button id="btn-menu" class="ghost">Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="screen"><div class="loading-text">Warming the light…</div></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
