@@ -1,4 +1,4 @@
-const KEY = 'golden-hour-settings-v1';
+const KEY = 'counter-rooms-settings-v1';
 
 const DEFAULTS = {
   sensitivity: 1.0,   // multiplier

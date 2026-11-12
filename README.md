@@ -1,4 +1,4 @@
-# Golden Hour
+# Counter-Rooms
 
 A browser FPS set in a warm, peaceful golden-hour backrooms. You survive waves of soft-glowing
 entities in a hand-built arena of sunlit galleries, a pillared atrium and quiet lounges.
