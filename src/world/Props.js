@@ -116,3 +116,75 @@ export function makeLamp() {
   group.add(bulb);
   return { group, boxes: [{ minX: -0.2, maxX: 0.2, minY: 0, maxY: 1.8, minZ: -0.2, maxZ: 0.2 }], lightY: 1.6 };
 }
+
+// ---------- downloaded models ----------
+
+// Wraps a glTF scene so it is `size` metres long along `axis`, centred on X/Z and
+// standing on y = 0. Returns a template to clone() per placement (clones share
+// geometry and materials). template.userData.size holds the fitted dimensions.
+export function makeTemplate(gltf, { size, axis = 'y', shadows = true, setup } = {}) {
+  const root = gltf.scene;
+  const holder = new THREE.Group();
+  holder.add(root);
+  holder.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const dim = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  const s = size / dim[axis];
+  holder.scale.setScalar(s);
+  holder.position.set(-c.x * s, -box.min.y * s, -c.z * s);
+  const tpl = new THREE.Group();
+  tpl.add(holder);
+  tpl.userData.size = dim.multiplyScalar(s);
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = shadows;
+    o.receiveShadow = true;
+    if (setup) for (const m of [].concat(o.material)) setup(m, o);
+  });
+  return tpl;
+}
+
+// Cut-out leaves: alpha-tested instead of blended so they sort and cast shadows properly.
+export function cutoutLeaves(m) {
+  if (m.transparent || m.alphaMode === 'BLEND') {
+    m.transparent = false;
+    m.alphaTest = 0.45;
+    m.depthWrite = true;
+  }
+}
+
+export function warmGlow(intensity) {
+  return (m) => {
+    if (!m.emissiveMap) return;
+    m.emissive.set(0xffc27a);
+    m.emissiveIntensity = intensity;
+  };
+}
+
+const sizeOf = (tpl) => tpl.userData.size;
+
+// Couch model: front faces +Z, so the back goes against the wall like makeCouch().
+export function modelCouch(tpl) {
+  const { x: w, y: h, z: d } = sizeOf(tpl);
+  return {
+    group: tpl.clone(),
+    width: w, depth: d,
+    boxes: [
+      { minX: -w / 2, maxX: w / 2, minY: 0, maxY: 0.5, minZ: -d / 2, maxZ: d / 2 },
+      { minX: -w / 2, maxX: w / 2, minY: 0, maxY: h * 0.85, minZ: -d / 2, maxZ: -d / 2 + 0.3 },
+    ],
+  };
+}
+
+// Round-ish props: one collision box of half-width r up to height `top`.
+export function modelProp(tpl, r, top) {
+  const t = top ?? sizeOf(tpl).y;
+  return { group: tpl.clone(), boxes: [{ minX: -r, maxX: r, minY: 0, maxY: t, minZ: -r, maxZ: r }] };
+}
+
+export function modelLamp(tpl) {
+  const made = modelProp(tpl, 0.2);
+  made.lightY = sizeOf(tpl).y * 0.86;
+  return made;
+}

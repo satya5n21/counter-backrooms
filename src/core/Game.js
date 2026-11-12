@@ -16,8 +16,10 @@ import { Menus } from '../ui/Menus.js';
 import { Audio } from '../audio/Audio.js';
 
 export class Game {
-  constructor(container) {
+  // assets: result of loadAssets() (models, textures, sky), or null for the procedural look.
+  constructor(container, assets = null) {
     this.container = container;
+    this.assets = assets;
     this.settings = new Settings();
     this.state = 'menu';
     this.time = 0;
@@ -40,14 +42,17 @@ export class Game {
     this.weaponScene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.settings.fov, 1, 0.04, 700);
     this.camera.rotation.order = 'YXZ';
+    // The guns use their own fixed, narrower field of view so they don't stretch at high FOV.
+    this.weaponCamera = new THREE.PerspectiveCamera(54, 1, 0.01, 20);
+    this._setupEnvironment();
 
     this.input = new Input(renderer.domElement);
     this.audio = new Audio(this.settings);
     this.hud = new HUD();
 
     this.level = new Level();
-    this.level.build(this.scene);
-    this.atmosphere = new Atmosphere(this.scene, this.level);
+    this.level.build(this.scene, assets);
+    this.atmosphere = new Atmosphere(this.scene, this.level, assets?.hdri);
     this.effects = new Effects(this.scene);
 
     this.player = new Player(this);
@@ -57,7 +62,7 @@ export class Game {
     this.waves = new WaveDirector(this);
     this.player.reset();
 
-    this.postfx = new PostFX(renderer, this.scene, this.weaponScene, this.camera);
+    this.postfx = new PostFX(renderer, this.scene, this.weaponScene, this.camera, this.weaponCamera);
     this.menus = new Menus(this);
 
     this.input.onLockChange = (locked) => {
@@ -91,6 +96,52 @@ export class Game {
 
   get difficulty() { return this.settings.difficulty; }
 
+  // Image-based lighting from the sunset photo, kept low: the rooms are indoors, and on
+  // the guns a stronger sky reflection turns dark metal into chrome.
+  _setupEnvironment() {
+    const hdri = this.assets?.hdri;
+    if (!hdri) return;
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const env = pmrem.fromEquirectangular(hdri.texture).texture;
+    pmrem.dispose();
+    const rot = Atmosphere.sunAlignment(hdri.sun);
+    for (const [scene, k] of [[this.scene, 0.3], [this.weaponScene, 0.35]]) {
+      scene.environment = env;
+      scene.environmentIntensity = k;
+      scene.environmentRotation.set(0, rot, 0);
+    }
+  }
+
+  // Compile shaders and upload textures before the loading screen goes away.
+  async warmUp() {
+    const shown = this.weapons.models.map((m) => m.group.visible);
+    this.weapons.models.forEach((m) => { m.group.visible = true; });
+    this.weaponScene.visible = true;
+    const timeout = (ms) => new Promise((r) => setTimeout(r, ms));
+    try {
+      await Promise.race([
+        Promise.all([
+          this.renderer.compileAsync(this.scene, this.camera),
+          this.renderer.compileAsync(this.weaponScene, this.weaponCamera),
+        ]),
+        timeout(8000),
+      ]);
+      this.weaponScene.traverse((o) => {
+        if (!o.isMesh) return;
+        for (const m of [].concat(o.material)) {
+          for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']) {
+            if (m[k]) this.renderer.initTexture(m[k]);
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('warm-up skipped:', err);
+    }
+    this.weapons.models.forEach((m, i) => { m.group.visible = shown[i]; });
+    this.weaponScene.visible = this.state === 'playing';
+    this.tick();
+  }
+
   applyQuality() {
     const high = this.settings.quality !== 'low';
     this.pixelRatio = high ? Math.min(window.devicePixelRatio || 1, 1.5) : 0.75;
@@ -106,6 +157,8 @@ export class Game {
     this.postfx.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.weaponCamera.aspect = w / h;
+    this.weaponCamera.updateProjectionMatrix();
     const px = h * this.pixelRatio;
     this.atmosphere.setViewportHeight(px);
     this.effects.setViewportHeight(px * 0.6);
@@ -241,6 +294,13 @@ export class Game {
     let hurt = this.hud.hurt;
     if (st === 'playing' && this.player.health < 30) hurt = Math.max(hurt, 0.25 + Math.sin(this.time * 4) * 0.1);
     if (st === 'playing' && !this.player.alive) hurt = Math.max(hurt, 0.6);
+    this.weaponCamera.position.copy(this.camera.position);
+    this.weaponCamera.quaternion.copy(this.camera.quaternion);
+    if (!this.weapons.modelled && this.weaponCamera.fov !== this.camera.fov) {
+      // the primitive guns were placed for the main camera's field of view
+      this.weaponCamera.fov = this.camera.fov;
+      this.weaponCamera.updateProjectionMatrix();
+    }
     this.postfx.render(dt, hurt);
     this.input.endFrame();
   }

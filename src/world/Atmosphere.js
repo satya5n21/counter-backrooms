@@ -5,13 +5,69 @@ import { softSpriteTexture } from './Textures.js';
 // Sunset sky dome, soft volumetric-looking light shafts through the windows,
 // and floating dust motes.
 export class Atmosphere {
-  constructor(scene, level) {
+  // hdri: { texture, sun, horizon } from loadAssets(), or null for the painted sky.
+  constructor(scene, level, hdri = null) {
     this.scene = scene;
     this.level = level;
     this.time = 0;
-    this._sky();
+    this.skyRotation = 0;
+    if (hdri) this._hdriSky(hdri); else this._sky();
     this._shafts();
     this._dust();
+  }
+
+  // Rotation (about Y) that turns the photo's sun towards the game's SUN_DIR.
+  // Sampling uses dirHDR = rotateY(dirWorld) with azimuth(dirHDR) = azimuth(dirWorld) + rot.
+  static sunAlignment(hdriSun) {
+    return Math.atan2(hdriSun.z, hdriSun.x) - Math.atan2(SUN_DIR.z, SUN_DIR.x);
+  }
+
+  _hdriSky(hdri) {
+    const rot = this.skyRotation = Atmosphere.sunAlignment(hdri.sun);
+    const mat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uSky: { value: hdri.texture },
+        uRot: { value: new THREE.Vector2(Math.cos(rot), Math.sin(rot)) },
+        uExposure: { value: 0.62 / Math.max(hdri.horizon, 1e-3) },
+        sunDir: { value: SUN_DIR.clone() },
+      },
+      vertexShader: /* glsl */`
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: /* glsl */`
+        #include <common>
+        uniform sampler2D uSky;
+        uniform vec2 uRot;
+        uniform float uExposure;
+        uniform vec3 sunDir;
+        varying vec3 vDir;
+        void main() {
+          vec3 d = normalize(vDir);
+          vec3 h = vec3(uRot.x * d.x - uRot.y * d.z, d.y, uRot.y * d.x + uRot.x * d.z);
+          h.x += 1e-5; // atan(0, 0) at the poles is undefined on some GPUs
+          vec3 col = texture2D(uSky, equirectUv(normalize(h))).rgb * uExposure;
+          // golden-hour grade: strong amber near the horizon, gentler higher up
+          vec3 tint = mix(vec3(1.4, 0.9, 0.55), vec3(1.08, 0.92, 0.86), smoothstep(0.04, 0.55, d.y));
+          float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+          col = max(mix(vec3(l), col, 1.15) * tint, 0.0);
+          // the photo has no ground: fade into warm haze below the horizon
+          vec3 haze = vec3(0.78, 0.52, 0.33);
+          col = mix(col, haze, smoothstep(0.0, -0.12, d.y));
+          // a soft glow around the game's sun so the shafts and the sky agree
+          float s = max(dot(d, normalize(sunDir)), 0.0);
+          col += vec3(1.0, 0.65, 0.35) * pow(s, 8.0) * 0.35;
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    });
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(320, 48, 24), mat);
+    this.sky.renderOrder = -10;
+    this.scene.add(this.sky);
   }
 
   _sky() {
@@ -76,7 +132,9 @@ export class Atmosphere {
         varying float vT;
         varying float vDist;
         void main() {
-          float fade = pow(1.0 - vT, 1.6) * smoothstep(0.0, 0.08, vT);
+          // vT can land a hair outside 0..1 after interpolation; pow() of a negative is NaN
+          float t = clamp(vT, 0.0, 1.0);
+          float fade = pow(1.0 - t, 1.6) * smoothstep(0.0, 0.08, t);
           float near = smoothstep(0.4, 2.5, vDist);
           float shimmer = 0.85 + 0.15 * sin(uTime * 0.6 + vT * 6.0);
           gl_FragColor = vec4(vec3(1.0, 0.78, 0.5) * uStrength * fade * near * shimmer, 1.0);

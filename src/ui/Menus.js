@@ -1,10 +1,12 @@
+import { CREDITS } from './credits.js';
+
 const $ = (id) => document.getElementById(id);
 
 // Wires the DOM screens (menu, pause, settings, game over) to the game.
 export class Menus {
   constructor(game) {
     this.game = game;
-    this.screens = { menu: $('menu'), pause: $('pause'), settings: $('settings'), gameover: $('gameover'), loading: $('loading') };
+    this.screens = { menu: $('menu'), pause: $('pause'), settings: $('settings'), gameover: $('gameover'), credits: $('credits') };
     this.settingsReturn = 'menu';
     const s = game.settings;
 
@@ -23,6 +25,9 @@ export class Menus {
     $('btn-retry').addEventListener('click', () => game.startGame());
     $('btn-menu').addEventListener('click', () => game.toMenu());
     $('btn-settings-back').addEventListener('click', () => this.show(this.settingsReturn));
+    $('btn-credits').addEventListener('click', () => this.show('credits'));
+    $('btn-credits-back').addEventListener('click', () => this.show('menu'));
+    this._fillCredits();
 
     // sliders
     const bind = (id, key, fmt, after) => {
@@ -65,6 +70,22 @@ export class Menus {
   show(name) {
     for (const [k, el] of Object.entries(this.screens)) el.classList.toggle('hidden', k !== name);
     if (name !== 'pause') $('resume-note').classList.add('hidden');
+  }
+
+  _fillCredits() {
+    const list = $('credits-list');
+    for (const c of CREDITS) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = c.url; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = c.what;
+      const b = document.createElement('b');
+      b.append(a);
+      const lic = document.createElement('small');
+      lic.textContent = c.license;
+      li.append(b, ` by ${c.author}`, lic);
+      list.append(li);
+    }
   }
 
   showResumeNote() { $('resume-note').classList.remove('hidden'); }

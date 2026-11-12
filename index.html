@@ -64,6 +64,7 @@
       <div class="actions">
         <button id="btn-play" class="primary">Enter the rooms</button>
         <button id="btn-settings" class="ghost">Settings</button>
+        <button id="btn-credits" class="ghost">Credits</button>
       </div>
       <div class="controls">
         <span><kbd>WASD</kbd> move</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> jump</span>
@@ -88,6 +89,18 @@
   </div>
 
   <!-- Settings -->
+  <!-- Credits -->
+  <div id="credits" class="screen hidden">
+    <div class="panel">
+      <h2>Credits</h2>
+      <p class="lede">Made with the help of these artists' work.</p>
+      <ul id="credits-list"></ul>
+      <div class="actions">
+        <button id="btn-credits-back" class="primary">Back</button>
+      </div>
+    </div>
+  </div>
+
   <div id="settings" class="screen hidden">
     <div class="panel small">
       <h2>Settings</h2>
@@ -137,7 +150,11 @@
     </div>
   </div>
 
-  <div id="loading" class="screen"><div class="loading-text">Warming the light…</div></div>
+  <div id="loading" class="screen">
+    <div class="loading-text">Warming the light…</div>
+    <div class="loading-bar"><div class="loading-fill"></div></div>
+    <div class="loading-detail"></div>
+  </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

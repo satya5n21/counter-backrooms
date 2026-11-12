@@ -41,8 +41,27 @@ const GradeShader = {
     }`,
 };
 
+// Runs before bloom. A single NaN, Inf or absurdly bright pixel (a razor-sharp sun glint,
+// a shader edge case) would otherwise be blurred by the bloom into a huge black rectangle
+// for that frame. Invalid pixels become black, and brightness is capped well above white.
+const SanitizeShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(clamp(c.rgb, 0.0, 48.0), clamp(c.a, 0.0, 1.0));
+    }`,
+};
+
 export class PostFX {
-  constructor(renderer, scene, weaponScene, camera) {
+  // weaponCamera: the guns get their own (narrower) field of view, like most shooters.
+  constructor(renderer, scene, weaponScene, camera, weaponCamera = camera) {
     this.renderer = renderer;
     const size = renderer.getSize(new THREE.Vector2());
     // Multisampled HDR target so edges stay smooth through post-processing.
@@ -52,7 +71,7 @@ export class PostFX {
     });
     this.composer = new EffectComposer(renderer, target);
     this.mainPass = new RenderPass(scene, camera);
-    this.weaponPass = new RenderPass(weaponScene, camera);
+    this.weaponPass = new RenderPass(weaponScene, weaponCamera);
     this.weaponPass.clear = false;
     this.weaponPass.clearDepth = true;
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.38, 0.5, 1.0);
@@ -60,6 +79,8 @@ export class PostFX {
     this.output = new OutputPass();
     this.composer.addPass(this.mainPass);
     this.composer.addPass(this.weaponPass);
+    this.sanitize = new ShaderPass(SanitizeShader);
+    this.composer.addPass(this.sanitize);
     this.composer.addPass(this.bloom);
     this.composer.addPass(this.grade);
     this.composer.addPass(this.output);

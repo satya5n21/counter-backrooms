@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { WEAPONS } from '../config.js';
 import { softSpriteTexture } from '../world/Textures.js';
+import { buildModelWeapons } from './Viewmodels.js';
 
 const metal = new THREE.MeshStandardMaterial({ color: 0x2e2c2a, roughness: 0.45, metalness: 0.6 });
 const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1d1c1b, roughness: 0.5, metalness: 0.5 });
@@ -77,12 +78,15 @@ export class Weapons {
     this.holder = new THREE.Group();
     this.scene.add(this.holder);
 
-    const hemi = new THREE.HemisphereLight(0xffe8c8, 0x6a5030, 1.6);
-    const key = new THREE.DirectionalLight(0xffc488, 1.6);
+    const modelled = buildModelWeapons(game.assets?.models);
+    const hemi = new THREE.HemisphereLight(0xffe8c8, 0x6a5030, modelled ? 1.1 : 1.6);
+    const key = new THREE.DirectionalLight(0xffc488, modelled ? 2.2 : 1.6);
     key.position.set(-1, 1, 0.5);
     this.scene.add(hemi, key);
 
-    this.models = [buildPistol(), buildRifle(), buildShotgun()];
+    // Downloaded models when all three guns loaded, otherwise the primitive set.
+    this.models = modelled || [buildPistol(), buildRifle(), buildShotgun()];
+    this.modelled = !!modelled;
     for (const m of this.models) {
       m.group.visible = false;
       this.holder.add(m.group);
@@ -349,13 +353,41 @@ export class Weapons {
       this.swayX * 1.5 + this.sprintBlend * 0.5,
       -tilt * 0.8 + this.swayX * 2,
     );
-    if (m.pump) {
-      const pumpT = this.def.id === 'shotgun' && this.cooldown > 0 ? Math.sin(Math.max(0, 1 - this.cooldown / 0.8) * Math.PI) : 0;
-      m.pump.position.z = -0.3 + pumpT * 0.08;
-    }
+    const pumpT = this.def.id === 'shotgun' && this.cooldown > 0 ? Math.sin(Math.max(0, 1 - this.cooldown / 0.8) * Math.PI) : 0;
+    if (m.pump) m.pump.position.z = -0.3 + pumpT * 0.08;
+    if (m.arms) this._animateArms(m, pumpT);
     m.group.updateMatrix();
 
     this.flash.visible = this.flashTime > 0;
     this.muzzleLight.intensity *= Math.exp(-dt * 40);
+  }
+
+  // Hand motions for the modelled arms: pump the shotgun, reach for magazines and shells.
+  _animateArms(m, pumpT) {
+    const left = m.arms.left, right = m.arms.right;
+    if (!left) return;
+    left.userData.base ||= left.position.clone();
+    right.userData.base ||= right.position.clone();
+    const lb = left.userData.base;
+    let dx = 0, dy = 0, dz = 0;
+    if (this.reloading > 0 && this.switching <= 0) {
+      const w = this.def;
+      const t = 1 - this.reloading / w.reloadTime;
+      if (w.shellReload) {
+        // each shell: hand drops under the receiver and pushes forward
+        const k = Math.sin(t * Math.PI);
+        dx = 0.02 * k; dy = -0.05 * k; dz = 0.18 * k;
+      } else if (w.id === 'rifle') {
+        // hand drops to the magazine and back
+        const k = Math.sin(Math.min(1, t * 1.15) * Math.PI);
+        dx = 0.03 * k; dy = -0.12 * k; dz = 0.22 * k;
+      } else {
+        // pistol: support hand comes off to fetch a magazine
+        const k = Math.sin(t * Math.PI);
+        dx = -0.04 * k; dy = -0.16 * k; dz = 0.05 * k;
+      }
+    }
+    dz += pumpT * 0.06;
+    left.position.set(lb.x + dx, lb.y + dy, lb.z + dz);
   }
 }

@@ -2,8 +2,11 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CELL, WALL_H, SUN_DIR } from '../config.js';
 import { MAP_ROWS } from './mapData.js';
-import * as Tex from './Textures.js';
-import { makeCouch, makePlant, makeLamp } from './Props.js';
+import { buildLevelMaterials, worldBoxUV, TEX_SIZE } from './Materials.js';
+import {
+  makeCouch, makePlant, makeLamp,
+  makeTemplate, cutoutLeaves, warmGlow, modelCouch, modelProp, modelLamp,
+} from './Props.js';
 
 const FLOOR = 0, WALL = 1, WINDOW = 2;
 const STEP_HEIGHT = 0.32;
@@ -108,6 +111,7 @@ export class Level {
           case 'C': this.navBlocked[i] = 1; this.propSpecs.push({ kind: 'couch', cx, cz }); break;
           case 'T': this.propSpecs.push({ kind: 'plant', cx, cz }); break;
           case 'L': this.propSpecs.push({ kind: 'lamp', cx, cz }); break;
+          case 'A': this.propSpecs.push({ kind: 'chair', cx, cz }); break;
           case 'S': this.spawnPoints.push(c); break;
           case 'h': this.pickupSpots.push(c); break;
           case 'X': this.playerStart.copy(c); break;
@@ -117,45 +121,45 @@ export class Level {
   }
 
   // ---------- visual construction ----------
-  build(scene) {
-    const wallpaper = Tex.wallpaperTexture();
-    const carpet = Tex.carpetTexture();
-    const ceilTex = Tex.ceilingTexture();
-    carpet.repeat.set(this.width / CELL, this.depth / CELL);
-    ceilTex.repeat.set(this.width / 1.25, this.depth / 1.25);
+  // `assets` is the result of loadAssets(), or null for the all-procedural look.
+  build(scene, assets = null) {
+    this.models = assets?.models || {};
+    this.materials = buildLevelMaterials(assets);
 
-    this.materials = {
-      wall: new THREE.MeshStandardMaterial({ map: wallpaper, roughness: 0.92 }),
-      floor: new THREE.MeshStandardMaterial({ map: carpet, roughness: 1 }),
-      ceiling: new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 0.95 }),
-      trim: new THREE.MeshStandardMaterial({ color: 0xf0e6cc, roughness: 0.55 }),
-      frame: new THREE.MeshStandardMaterial({ color: 0xf7f1e3, roughness: 0.5 }),
-      pillar: new THREE.MeshStandardMaterial({ color: 0xe7d6ad, roughness: 0.85 }),
-    };
+    this._buildFloor();
 
-    const floor = new THREE.Mesh(this._plane(this.width, this.depth, 0, false), this.materials.floor);
-    floor.receiveShadow = true;
-    this.group.add(floor);
-
-    const ceiling = new THREE.Mesh(this._plane(this.width, this.depth, WALL_H, true), this.materials.ceiling);
-    ceiling.castShadow = true;
-    ceiling.receiveShadow = true;
-    this.group.add(ceiling);
-
+    this.wallFaces = [];
     this._buildWalls();
     this._buildPillars();
     this._buildProps(scene);
+    this._buildVents();
     this._buildCeilingPanels();
     this._buildLights(scene);
 
     scene.add(this.group);
   }
 
-  _plane(w, d, y, down) {
-    const g = new THREE.PlaneGeometry(w, d);
-    g.rotateX(down ? Math.PI / 2 : -Math.PI / 2);
-    g.translate(w / 2, y, d / 2);
-    return g;
+  // Floor and ceiling only over floor cells (so nothing pokes through the window openings).
+  // Carpet everywhere, except a wooden floor along the sunlit window gallery (columns 1-5).
+  _buildFloor() {
+    const carpet = new GeoBuilder(), wood = new GeoBuilder(), ceil = new GeoBuilder();
+    const up = new THREE.Vector3(0, 1, 0), down = new THREE.Vector3(0, -1, 0);
+    for (const [cx, cz] of this.floorCells) {
+      const x0 = cx * CELL, x1 = x0 + CELL, z0 = cz * CELL, z1 = z0 + CELL;
+      const pts = (y) => [new THREE.Vector3(x0, y, z0), new THREE.Vector3(x1, y, z0), new THREE.Vector3(x1, y, z1), new THREE.Vector3(x0, y, z1)];
+      const f = pts(0), c = pts(WALL_H);
+      (cx <= 5 ? wood : carpet).quad(f, up, f.map((p) => [p.x, -p.z]));
+      ceil.quad(c, down, c.map((p) => [p.x, p.z]));
+    }
+    for (const [b, mat] of [[carpet, this.materials.floor], [wood, this.materials.woodFloor]]) {
+      if (!b.pos.length) continue;
+      const mesh = new THREE.Mesh(b.geometry(), mat);
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+    }
+    const ceiling = new THREE.Mesh(ceil.geometry(), this.materials.ceiling);
+    ceiling.castShadow = ceiling.receiveShadow = true;
+    this.group.add(ceiling);
   }
 
   // Describes one wall face: bottom-left corner A, horizontal axis `right`, outward normal n.
@@ -170,7 +174,7 @@ export class Level {
 
   _wallQuad(b, F, u0, u1, v0, v1, off = 0) {
     const pts = [F.P(u0, v0, off), F.P(u1, v0, off), F.P(u1, v1, off), F.P(u0, v1, off)];
-    const uvs = pts.map((p) => [(p.x * F.right.x + p.z * F.right.z) / 1.25, p.y / WALL_H]);
+    const uvs = pts.map((p) => [p.x * F.right.x + p.z * F.right.z, p.y]); // metres
     b.quad(pts, F.n, uvs);
   }
 
@@ -183,10 +187,11 @@ export class Level {
 
     const baseboard = (F, u0, u1) => {
       const h = 0.13, off = 0.015;
+      const along = (p) => p.x * F.right.x + p.z * F.right.z;
       const pts = [F.P(u0, 0, off), F.P(u1, 0, off), F.P(u1, h, off), F.P(u0, h, off)];
-      trimB.quad(pts, F.n, [[0, 0], [1, 0], [1, 1], [0, 1]]);
+      trimB.quad(pts, F.n, pts.map((p) => [along(p), p.y]));
       const lip = [F.P(u0, h, 0), F.P(u1, h, 0), F.P(u1, h, off), F.P(u0, h, off)];
-      trimB.quad(lip, up, [[0, 0], [1, 0], [1, 1], [0, 1]]);
+      trimB.quad(lip, up, lip.map((p, i) => [along(p), i < 2 ? 0 : off]));
     };
 
     const box = (F, uc, vc, off, su, sv, sn) => {
@@ -194,7 +199,7 @@ export class Level {
       const g = alongX ? new THREE.BoxGeometry(su, sv, sn) : new THREE.BoxGeometry(sn, sv, su);
       const c = F.P(uc, vc, off);
       g.translate(c.x, c.y, c.z);
-      frameGeos.push(g);
+      frameGeos.push(worldBoxUV(g));
     };
 
     for (let cz = 0; cz < this.h; cz++) {
@@ -207,6 +212,7 @@ export class Level {
           if (type !== WINDOW) {
             this._wallQuad(wallB, F, 0, CELL, 0, WALL_H);
             baseboard(F, 0, CELL);
+            this.wallFaces.push(F);
             continue;
           }
           // Window: wall around an opening, with a shallow reveal and a white frame.
@@ -215,7 +221,8 @@ export class Level {
           this._wallQuad(wallB, F, 0, CELL, v1, WALL_H);
           this._wallQuad(wallB, F, 0, u0, v0, v1);
           this._wallQuad(wallB, F, u1, CELL, v0, v1);
-          const rv = (p, n) => wallB.quad(p, n, p.map((q) => [(q.x + q.z) / 1.25, q.y / WALL_H]));
+          // reveal UVs: the two axes that lie in each reveal face, in metres
+          const rv = (p, n) => wallB.quad(p, n, p.map((q) => (Math.abs(n.y) > 0.5 ? [q.x + q.z, q.x - q.z] : [q.x - q.z, q.y])));
           rv([F.P(u0, v0, 0), F.P(u1, v0, 0), F.P(u1, v0, -d), F.P(u0, v0, -d)], up);
           rv([F.P(u0, v1, 0), F.P(u1, v1, 0), F.P(u1, v1, -d), F.P(u0, v1, -d)], down);
           rv([F.P(u0, v0, 0), F.P(u0, v1, 0), F.P(u0, v1, -d), F.P(u0, v0, -d)], F.right);
@@ -255,12 +262,12 @@ export class Level {
       const c = this.cellCenter(s.cx, s.cz);
       const g = new THREE.BoxGeometry(0.9, WALL_H, 0.9);
       g.translate(c.x, WALL_H / 2, c.z);
-      geos.push(g);
+      geos.push(worldBoxUV(g));
       const base = new THREE.BoxGeometry(0.98, 0.16, 0.98);
       base.translate(c.x, 0.08, c.z);
       const cap = new THREE.BoxGeometry(1.0, 0.14, 1.0);
       cap.translate(c.x, WALL_H - 0.07, c.z);
-      trims.push(base, cap);
+      trims.push(worldBoxUV(base), worldBoxUV(cap));
       this.boxes.push({ minX: c.x - 0.5, maxX: c.x + 0.5, minY: 0, maxY: WALL_H, minZ: c.z - 0.5, maxZ: c.z + 0.5 });
     }
     if (!geos.length) return;
@@ -275,46 +282,111 @@ export class Level {
     return DIRS4.filter(([dx, dz]) => this.isWall(cx + dx, cz + dz));
   }
 
+  // Downloaded models fitted to real-world sizes (null when a file is missing).
+  _templates() {
+    const M = this.models;
+    const t = (key, opts) => (M[key] ? makeTemplate(M[key], opts) : null);
+    return {
+      couch: t('sofa', { size: 2.1, axis: 'x' }),
+      plant: t('plant', { size: 1.55, setup: cutoutLeaves }),
+      lamp: t('lamp', { size: 1.75, setup: warmGlow(2.2) }),
+      chair: t('chair', { size: 1.12 }),
+      table: t('table', { size: 0.6 }),
+    };
+  }
+
+  _placeProp(made, pos, rot) {
+    made.group.position.copy(pos);
+    made.group.rotation.y = rot;
+    this.group.add(made.group);
+
+    // Transform local boxes into world AABBs (rotation is arbitrary for round props,
+    // so use the rotated corner extents).
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    for (const b of made.boxes) {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const [x, z] of [[b.minX, b.minZ], [b.maxX, b.minZ], [b.maxX, b.maxZ], [b.minX, b.maxZ]]) {
+        const wx = x * cos + z * sin, wz = -x * sin + z * cos;
+        minX = Math.min(minX, wx); maxX = Math.max(maxX, wx);
+        minZ = Math.min(minZ, wz); maxZ = Math.max(maxZ, wz);
+      }
+      this.boxes.push({ minX: pos.x + minX, maxX: pos.x + maxX, minY: b.minY, maxY: b.maxY, minZ: pos.z + minZ, maxZ: pos.z + maxZ });
+    }
+  }
+
   _buildProps() {
     this.lampSpots = [];
+    const tpl = this._templates();
+    const taken = new Set(this.propSpecs.map((s) => this.idx(s.cx, s.cz)));
     for (const s of this.propSpecs) {
       if (s.kind === 'pillar') continue;
+      if (s.kind === 'chair' && !tpl.chair) continue;
       const c = this.cellCenter(s.cx, s.cz);
       const walls = this._wallNeighbors(s.cx, s.cz);
       let made, rot = 0;
       const pos = c.clone();
       if (s.kind === 'couch') {
-        made = makeCouch();
+        made = tpl.couch ? modelCouch(tpl.couch) : makeCouch();
         const [dx, dz] = walls[0] || [0, -1];
         rot = Math.atan2(-dx, -dz);
-        pos.x += dx * 0.76; pos.z += dz * 0.76;
+        const off = made.depth ? CELL / 2 - made.depth / 2 - 0.06 : 0.76;
+        pos.x += dx * off; pos.z += dz * off;
+        if (tpl.table) this._tableBeside(tpl.table, s, pos, dx, dz, made.width || 2, taken);
+      } else if (s.kind === 'chair') {
+        made = modelProp(tpl.chair, 0.33);
+        let fx = 0, fz = 0;
+        for (const [dx, dz] of walls.slice(0, 2)) { pos.x += dx * 0.62; pos.z += dz * 0.62; fx -= dx; fz -= dz; }
+        rot = (fx || fz ? Math.atan2(fx, fz) : Math.random() * Math.PI * 2) + (Math.random() - 0.5) * 0.7;
       } else {
-        made = s.kind === 'plant' ? makePlant() : makeLamp();
+        if (s.kind === 'plant') made = tpl.plant ? modelProp(tpl.plant, 0.22, 1.3) : makePlant();
+        else made = tpl.lamp ? modelLamp(tpl.lamp) : makeLamp();
         for (const [dx, dz] of walls.slice(0, 2)) { pos.x += dx * 0.72; pos.z += dz * 0.72; }
         rot = Math.random() * Math.PI * 2;
         if (s.kind === 'lamp') this.lampSpots.push(new THREE.Vector3(pos.x, made.lightY, pos.z));
       }
-      made.group.position.copy(pos);
-      made.group.rotation.y = rot;
-      this.group.add(made.group);
-
-      // Transform local boxes into world AABBs (rotation is arbitrary for round props,
-      // so use the rotated corner extents).
-      const cos = Math.cos(rot), sin = Math.sin(rot);
-      for (const b of made.boxes) {
-        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-        for (const [x, z] of [[b.minX, b.minZ], [b.maxX, b.minZ], [b.maxX, b.maxZ], [b.minX, b.maxZ]]) {
-          const wx = x * cos + z * sin, wz = -x * sin + z * cos;
-          minX = Math.min(minX, wx); maxX = Math.max(maxX, wx);
-          minZ = Math.min(minZ, wz); maxZ = Math.max(maxZ, wz);
-        }
-        this.boxes.push({ minX: pos.x + minX, maxX: pos.x + maxX, minY: b.minY, maxY: b.maxY, minZ: pos.z + minZ, maxZ: pos.z + maxZ });
-      }
+      this._placeProp(made, pos, rot);
     }
+  }
+
+  // A small side table at one end of a couch, against the same wall, if there is room.
+  _tableBeside(tableTpl, s, couchPos, dx, dz, couchWidth, taken) {
+    for (const side of [1, -1]) {
+      const ax = dz * side, az = -dx * side; // along the wall
+      const nx = s.cx + ax, nz = s.cz + az;
+      if (this.isBlocked(nx, nz) || taken.has(this.idx(nx, nz))) continue;
+      const ch = this.rows[nz][nx];
+      if (ch === 'S' || ch === 'h' || ch === 'X') continue;
+      const pos = couchPos.clone();
+      pos.x += ax * (couchWidth / 2 + 0.38); pos.z += az * (couchWidth / 2 + 0.38);
+      this._placeProp(modelProp(tableTpl, 0.26), pos, Math.random() * Math.PI);
+      taken.add(this.idx(nx, nz));
+      return;
+    }
+  }
+
+  // Vent grilles high on roughly one plain wall face in six.
+  _buildVents() {
+    if (!this.models.vent) return;
+    const tpl = makeTemplate(this.models.vent, {
+      size: 0.62, axis: 'x', shadows: false,
+      setup: (m) => { m.roughness = Math.max(m.roughness, 0.55); m.color.multiplyScalar(0.85); },
+    });
+    this.wallFaces.forEach((F, i) => {
+      if ((F.cx * 7 + F.cz * 13 + i) % 6 !== 0) return;
+      const v = tpl.clone();
+      const c = F.P(CELL / 2, WALL_H - 0.42, 0.012);
+      v.position.copy(c);
+      v.rotation.y = Math.atan2(F.n.x, F.n.z); // model front (+Z) faces out of the wall
+      this.group.add(v);
+    });
   }
 
   _buildCeilingPanels() {
     const spots = this.floorCells.filter(([cx, cz]) => (cx + cz) % 2 === 0);
+    if (this.models.fixture) {
+      this._buildFixtures(spots);
+      return;
+    }
     const geo = new THREE.PlaneGeometry(1.25, 0.62);
     geo.rotateX(Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.45, 1.32, 1.08) });
@@ -332,6 +404,33 @@ export class Level {
       frames.setMatrixAt(i, m);
     });
     this.group.add(panels, frames);
+  }
+
+  // Fluorescent fixtures from the downloaded model, instanced (one draw per mesh).
+  _buildFixtures(spots) {
+    const tpl = makeTemplate(this.models.fixture, { size: 1.25, axis: 'z', shadows: false });
+    tpl.updateMatrixWorld(true);
+    const h = tpl.userData.size.y;
+    const m = new THREE.Matrix4();
+    tpl.traverse((o) => {
+      if (!o.isMesh) return;
+      const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
+      const mat = o.material.clone();
+      mat.transparent = false;
+      mat.depthWrite = true;
+      if (mat.emissiveMap) {
+        mat.emissive.set(0xfff0d0);
+        mat.emissiveIntensity = 2.4;
+      }
+      const inst = new THREE.InstancedMesh(geo, mat, spots.length);
+      spots.forEach(([cx, cz], i) => {
+        const c = this.cellCenter(cx, cz);
+        m.makeTranslation(c.x, WALL_H - h - 0.002, c.z);
+        inst.setMatrixAt(i, m);
+      });
+      inst.computeBoundingSphere();
+      this.group.add(inst);
+    });
   }
 
   _buildLights(scene) {

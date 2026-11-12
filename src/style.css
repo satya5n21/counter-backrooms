@@ -70,6 +70,10 @@ button:active { transform: translateY(1px) scale(0.99); }
 .diff button:hover { background: rgba(255, 255, 255, 0.85); }
 .diff button.sel { background: #fff; border-color: var(--gold); box-shadow: 0 0 0 2px rgba(224, 162, 78, 0.35); }
 
+#credits-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; line-height: 1.4; color: var(--ink-soft); }
+#credits-list b { color: var(--ink); font-weight: 600; }
+#credits-list a { color: inherit; }
+#credits-list small { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: rgba(160, 120, 70, 0.14); font-size: 11px; }
 .actions { display: flex; gap: 10px; margin-top: 24px; flex-wrap: wrap; }
 .actions.column { flex-direction: column; }
 .primary {
@@ -99,7 +103,10 @@ input[type=range] { width: 100%; accent-color: var(--gold-deep); }
 .stats b { display: block; font-family: var(--serif); font-size: 36px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .stats span { font-size: 12px; color: var(--ink-soft); }
 
-#loading { background: #2a1d12; z-index: 30; }
+#loading { background: #2a1d12; z-index: 30; flex-direction: column; gap: 18px; }
+.loading-bar { width: min(360px, 70vw); height: 3px; border-radius: 2px; background: rgba(255, 236, 200, 0.14); overflow: hidden; }
+.loading-fill { width: 0; height: 100%; background: linear-gradient(90deg, #f3c27a, #ffe6b8); transition: width 0.2s linear; }
+.loading-detail { font-family: var(--sans); font-size: 12px; letter-spacing: 0.08em; color: rgba(255, 236, 200, 0.55); min-height: 1em; }
 .loading-text { font-family: var(--serif); font-style: italic; font-size: 26px; color: var(--cream-2); animation: breathe 2.2s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: 0.45; } }
 
