@@ -1,0 +1,9 @@
+// Cloudflare Workers config: serve the Vite build (dist/) as static files.
+// Having this file stops `wrangler deploy` from trying to auto-configure Vite.
+{
+  "name": "counter-backrooms",
+  "compatibility_date": "2025-06-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}
