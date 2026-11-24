@@ -6,6 +6,9 @@ entities in a hand-built arena of sunlit galleries, a pillared atrium and quiet 
 Everything is generated in code: textures are painted on canvases, models are built from
 primitives, and all sound and music is synthesised with Web Audio. There are no asset files.
 
+## Try it here
+https://counter-rooms.satyabuilds.com/
+
 ## Run
 
 ```bash
