@@ -9,7 +9,7 @@ primitives, and all sound and music is synthesised with Web Audio. There are no 
 ## Try it here
 https://counter-rooms.satyabuilds.com/
 
-## Run
+## Local Run
 
 ```bash
 npm install
